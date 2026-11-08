@@ -406,3 +406,17 @@ def test_move_cleanup_failure_does_not_report_move_failed(tmp_path, monkeypatch)
     monkeypatch.setattr(datatype.os, 'rmdir', lambda path: (_ for _ in ()).throw(PermissionError('remote cleanup denied')))
     movie.rename_files()
     assert (dest/'ABC-123.mp4').read_bytes()==b'test' and sub.is_dir()
+
+
+def test_jav321_optional_fields_and_absolute_rating_url(monkeypatch):
+    from javsp.web import jav321
+    doc=html.fromstring('''<html><ul class="dropdown-menu"><li><a href="https://example.test/video/cid123">link</a></li></ul>
+    <div class="panel-heading"><h3>Example</h3></div><div class="col-md-9"><b>品番</b>: ABC-123
+    <b>収録時間</b><b>平均評価</b><img data-original="https://example.test/img/35.gif"></div>
+    <div class="thumbnail"><a href="/star/1"><img src="https://example.test/a.jpg"></a></div>
+    <div class="col-xs-12 col-md-12"><p><a><img class="img-responsive" src="https://example.test/cover.jpg"></a></p></div></html>''')
+    monkeypatch.setattr(jav321, 'post_html', lambda *args, **kwargs: doc)
+    movie=MovieInfo('ABC-123');jav321.parse_data(movie)
+    assert movie.title=='Example' and movie.cover=='https://example.test/cover.jpg'
+    assert movie.score=='7.0' and movie.publish_date is None and movie.duration is None
+    assert movie.actress==[]

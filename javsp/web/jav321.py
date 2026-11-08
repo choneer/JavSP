@@ -32,8 +32,10 @@ def parse_data(movie: MovieInfo):
     actress, actress_pics = [], {}
     actress_tags = html.xpath("//div[@class='thumbnail']/a[contains(@href,'/star/')]/img")
     for tag in actress_tags:
-        name = tag.tail.strip()
+        name = (tag.tail or '').strip()
         pic_url = tag.get('src')
+        if not name:
+            continue
         actress.append(name)
         # jav321的女优头像完全是应付了事：即使女优实际没有头像，也会有一个看起来像模像样的url，
         # 因而无法通过url判断女优头像图片是否有效。有其他选择时最好不要使用jav321的女优头像数据
@@ -45,17 +47,19 @@ def parse_data(movie: MovieInfo):
         genre.append(tag.text)
         genre_id.append(tag.get('href').split('/')[-2]) # genre/4025/1
     dvdid = info.xpath("b[text()='品番']")[0].tail.replace(': ', '').upper()
-    publish_date = info.xpath("b[text()='配信開始日']")[0].tail.replace(': ', '')
+    date_tags = info.xpath("b[text()='配信開始日']")
+    publish_date = (date_tags[0].tail or '').replace(': ', '').strip() or None if date_tags else None
     duration_div = info.xpath("b[text()='収録時間']")
     if duration_div:
-        match = re.search(r'\d+', duration_div[0].tail)
+        match = re.search(r'\d+', duration_div[0].tail or '')
         if match:
             movie.duration = match.group(0)
     # 仅部分影片有评分且评分只能粗略到星级而没有分数，要通过星级的图片来判断，如'/img/35.gif'表示3.5星
     score_tag = info.xpath("//b[text()='平均評価']/following-sibling::img/@data-original")
     if score_tag:
-        score = int(score_tag[0][5:7])/5   # /10*2
-        movie.score = str(score)
+        match = re.search(r'/(\d{2})\.gif(?:[?#].*)?$', score_tag[0])
+        if match:
+            movie.score = str(int(match.group(1))/5)
     serial_tag = info.xpath("a[contains(@href,'/series/')]/text()")
     if serial_tag:
         movie.serial = serial_tag[0]
