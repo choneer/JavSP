@@ -318,3 +318,22 @@ def test_entry_reports_partial_scan_as_failure(tmp_path):
     result = subprocess.run([sys.executable, '-c', program, str(tmp_path)], cwd=ROOT,
                             capture_output=True, text=True, encoding='utf8', errors='replace')
     assert result.returncode == 1, result.stderr
+
+
+def test_fc2_optional_rating_and_preview_failures_preserve_metadata(monkeypatch):
+    import requests
+    from javsp.web import fc2
+    markup = '''<html><div class="items_article_left"><div class="items_article_headerInfo"><h3>Example</h3></div>
+    <div class="items_article_MainitemThumb"><span><img src="https://example.test/img"><p class="items_article_info">00:30:00</p></span></div>
+    <li>by <a>Creator</a></li><section class="items_article_Contents"><iframe src="https://example.test/?ac=test"></iframe></section></div></html>'''
+    monkeypatch.setattr(fc2, 'Cfg', lambda: SimpleNamespace(crawler=SimpleNamespace(hardworking=True)))
+    monkeypatch.setattr(fc2, 'resp2html', lambda response: html.fromstring(markup))
+    monkeypatch.setattr(fc2, 'get_movie_score', lambda item: (_ for _ in ()).throw(requests.Timeout()))
+    def get(url):
+        if '/sample?' in url: raise requests.Timeout()
+        return SimpleNamespace(url=url)
+    monkeypatch.setattr(fc2, 'request_get', get)
+    movie = MovieInfo('FC2-123')
+    fc2.parse_data(movie)
+    assert movie.title == 'Example' and movie.cover == 'https://example.test/img'
+    assert movie.duration == '30' and movie.score is None and movie.preview_video is None

@@ -1,6 +1,7 @@
 """从FC2官网抓取数据"""
 import logging
 import re
+import requests
 
 
 from javsp.web.base import get_html, request_get, resp2html
@@ -64,20 +65,27 @@ def parse_data(movie: MovieInfo):
 
     if Cfg().crawler.hardworking:
         # 通过评论数据来计算准确的评分
-        score = get_movie_score(fc2_id)
-        if score:
-            movie.score = f'{score:.2f}'
+        try:
+            score = get_movie_score(fc2_id)
+            if score is not None:
+                movie.score = f'{score:.2f}'
+        except (requests.RequestException, ValueError, IndexError, TypeError) as exc:
+            logger.warning('FC2: unable to fetch optional rating (%s)', type(exc).__name__)
         # 预览视频是动态加载的，不在静态网页中
-        desc_frame_url = container.xpath("//section[@class='items_article_Contents']/iframe/@src")[0]
-        key = desc_frame_url.split('=')[-1]     # /widget/article/718323/description?ac=60fc08fa...
-        api_url = f'{base_url}/api/v2/videos/{fc2_id}/sample?key={key}'
-        r = request_get(api_url).json()
-        movie.preview_video = r['path']
+        frames = container.xpath("//section[@class='items_article_Contents']/iframe/@src")
+        if frames:
+            key = frames[0].split('=')[-1]
+            api_url = f'{base_url}/api/v2/videos/{fc2_id}/sample?key={key}'
+            try:
+                movie.preview_video = request_get(api_url).json().get('path')
+            except (requests.RequestException, ValueError, AttributeError) as exc:
+                logger.warning('FC2: unable to fetch optional preview (%s)', type(exc).__name__)
     else:
         # 获取影片评分。影片页面的评分只能粗略到星级，且没有分数，要通过类名来判断，如'items_article_Star5'表示5星
-        score_tag_attr = container.xpath("//a[@class='items_article_Stars']/p/span/@class")[0]
-        score = int(score_tag_attr[-1]) * 2
-        movie.score = f'{score:.2f}'
+        score_tags = container.xpath("//a[@class='items_article_Stars']/p/span/@class")
+        match = re.search(r'items_article_Star(\d)', score_tags[0]) if score_tags else None
+        if match:
+            movie.score = f'{int(match.group(1)) * 2:.2f}'
 
     movie.dvdid = id_uc
     movie.url = url
