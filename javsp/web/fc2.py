@@ -54,9 +54,9 @@ def parse_data(movie: MovieInfo):
     title = ''.join(title_arr)
     thumb_tag = container.xpath("//div[@class='items_article_MainitemThumb']")[0]
     thumb_pic = thumb_tag.xpath("span/img/@src")[0]
-    duration_str = thumb_tag.xpath("span/p[@class='items_article_info']/text()")[0]
+    duration_tags = thumb_tag.xpath("span/p[@class='items_article_info']/text()")
     # FC2没有制作商和发行商的区分，作为个人市场，影片页面的'by'更接近于制作商
-    producer = container.xpath("//li[text()='by ']/a/text()")[0]
+    producer_tags = container.xpath("//li[text()='by ']/a/text()")
     genre = container.xpath("//a[@class='tag tagTag']/text()")
     date_text = container.xpath(".//p[contains(text(), '販売日')]/text()")
     date_match = re.search(r'\d{4}/\d{2}/\d{2}', date_text[0]) if date_text else None
@@ -91,8 +91,12 @@ def parse_data(movie: MovieInfo):
     movie.url = url
     movie.title = title
     movie.genre = genre
-    movie.producer = producer
-    movie.duration = str(strftime_to_minutes(duration_str))
+    movie.producer = producer_tags[0] if producer_tags else None
+    if duration_tags:
+        try:
+            movie.duration = str(strftime_to_minutes(duration_tags[0].strip()))
+        except (ValueError, TypeError):
+            logger.warning('FC2: unable to parse optional duration')
     movie.publish_date = publish_date
     movie.preview_pics = preview_pics
     # FC2的封面是220x220的，和正常封面尺寸、比例都差太多。如果有预览图片，则使用第一张预览图作为封面

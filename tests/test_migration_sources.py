@@ -337,3 +337,28 @@ def test_fc2_optional_rating_and_preview_failures_preserve_metadata(monkeypatch)
     fc2.parse_data(movie)
     assert movie.title == 'Example' and movie.cover == 'https://example.test/img'
     assert movie.duration == '30' and movie.score is None and movie.preview_video is None
+
+
+@pytest.mark.parametrize('duration_markup', ['', '<p class="items_article_info">unknown</p>'])
+def test_fc2_missing_optional_duration_and_producer(monkeypatch, duration_markup):
+    from javsp.web import fc2
+    markup = '''<html><div class="items_article_left"><div class="items_article_headerInfo"><h3>Example</h3></div>
+    <div class="items_article_MainitemThumb"><span><img src="https://example.test/img">{}</span></div></div></html>'''.format(duration_markup)
+    monkeypatch.setattr(fc2, 'Cfg', lambda: SimpleNamespace(crawler=SimpleNamespace(hardworking=False)))
+    monkeypatch.setattr(fc2, 'resp2html', lambda response: html.fromstring(markup))
+    monkeypatch.setattr(fc2, 'request_get', lambda url: SimpleNamespace(url=url))
+    movie = MovieInfo('FC2-123')
+    fc2.parse_data(movie)
+    assert movie.title == 'Example' and movie.cover == 'https://example.test/img'
+    assert movie.duration is None and movie.producer is None
+
+
+def test_fc2ppvdb_missing_duration_keeps_metadata(monkeypatch):
+    from javsp.web import fc2ppvdb
+    markup = '''<html><div class="container lg:px-5 px-2 py-12 mx-auto"><div>
+    <h2><a>Example</a></h2><img alt="123" src="https://example.test/img"></div></div></html>'''
+    monkeypatch.setattr(fc2ppvdb, 'get_html', lambda url: html.fromstring(markup))
+    movie = MovieInfo('FC2-123')
+    fc2ppvdb.parse_data(movie)
+    assert movie.title == 'Example' and movie.cover == 'https://example.test/img'
+    assert movie.duration is None
