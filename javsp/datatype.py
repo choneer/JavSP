@@ -208,9 +208,12 @@ class Movie:
             move_file(fullpath, newpath)
             new_paths.append(newpath)
         self.new_paths = new_paths
-        if len(os.listdir(dir)) == 0:
-            #如果移动文件后目录为空则删除该目录
-            os.rmdir(dir)
+        if os.path.normcase(os.path.abspath(dir)) != os.path.normcase(os.path.abspath(os.getcwd())):
+            try:
+                if not os.listdir(dir):
+                    os.rmdir(dir)
+            except OSError as exc:
+                logger.warning('Unable to remove empty source directory: %s', exc)
 
 
 class GenreMap(dict):

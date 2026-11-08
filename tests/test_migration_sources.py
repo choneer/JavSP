@@ -385,3 +385,24 @@ def test_javdb_search_fallback_without_optional_rating(monkeypatch):
     movie=MovieInfo('IPX-177');javdb.parse_data(movie)
     assert movie.title=='Example' and movie.cover=='https://example.test/cover.jpg'
     assert movie.score is None and movie.publish_date is None
+
+
+def test_move_keeps_scan_root_when_destination_is_elsewhere(tmp_path, monkeypatch):
+    from javsp.datatype import Movie
+    root=tmp_path/'scan';dest=tmp_path/'output';root.mkdir();dest.mkdir()
+    src=root/'ABC-123.mp4';src.write_bytes(b'test')
+    monkeypatch.chdir(root)
+    movie=Movie('ABC-123');movie.files=[str(src)];movie.save_dir=str(dest);movie.basename='ABC-123'
+    movie.rename_files()
+    assert root.is_dir() and list(root.iterdir())==[]
+    assert (dest/'ABC-123.mp4').read_bytes()==b'test'
+
+
+def test_move_cleanup_failure_does_not_report_move_failed(tmp_path, monkeypatch):
+    from javsp import datatype
+    root=tmp_path/'scan';root.mkdir();sub=root/'sub';sub.mkdir();dest=tmp_path/'output';dest.mkdir()
+    src=sub/'ABC-123.mp4';src.write_bytes(b'test');monkeypatch.chdir(root)
+    movie=datatype.Movie('ABC-123');movie.files=[str(src)];movie.save_dir=str(dest);movie.basename='ABC-123'
+    monkeypatch.setattr(datatype.os, 'rmdir', lambda path: (_ for _ in ()).throw(PermissionError('remote cleanup denied')))
+    movie.rename_files()
+    assert (dest/'ABC-123.mp4').read_bytes()==b'test' and sub.is_dir()
