@@ -22,4 +22,4 @@ JavDB 需要登录时默认不会读取浏览器 Cookie。仅在了解并同意�
 
 FANZA 新页面通过非官方网页接口读取元数据，该接口和访问条件可能变化；JavBus、JAVLibrary 等站点可能要求验证或限制地区。单个站点访问失败不代表视频会自动成功整理。
 
-上游版权与使用条件见同目录 `UPSTREAM-README.md` 和 `LICENSE`。
+上游版权与使用条件见同目录 `LICENSE` 和 `README.md`（旧版便携包为 `UPSTREAM-README.md`）。

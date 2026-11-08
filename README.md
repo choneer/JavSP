@@ -6,7 +6,26 @@
 
 提取影片文件名中的番号信息，自动抓取并汇总多个站点数据的 AV 元数据，按照指定的规则分类整理影片文件，并创建供 Emby、Jellyfin、Kodi 等软件使用的元数据文件
 
-**WebUI**: UI界面不是[此项目的目标](https://github.com/Yuukiy/JavSP/issues/148)。
+## 本分支：Windows 本地 WebUI
+
+此分支在上游命令行工具上增加本机浏览器界面、配置迁移和部分数据源修复；上游项目本身并不以 UI 为目标。界面监听 `127.0.0.1:8765`，支持配置预览、编辑、任务启动和日志查看。它不是远程多用户服务，请勿直接暴露到公网。整理任务可能移动视频并覆盖元数据和图片，首次使用请先用独立测试目录验证。
+
+Windows 便携版使用及安全说明见 [Windows 使用说明](docs/WINDOWS_WEBUI.md)，已检查的数据源和限制见 [数据源检查记录](docs/SOURCE_STATUS_WINDOWS.md)。站点的可用性随网络、地区和网站验证变化；未恢复的来源不应被视为已修复。
+
+从源码运行时使用 Python 3.10–3.12，在项目根目录安装依赖后运行：
+
+```powershell
+python -m pip install -e .
+python -m javsp.server --open-browser
+```
+
+本分支新增的回归测试可用 `python -m pytest -q tests` 运行（需另外安装 pytest 和 httpx）；上游在线爬虫测试可能覆盖其测试快照，不应直接用于检查个人媒体。WebUI 运行任务时会关闭交互和自动更新检查。
+
+旧版 INI 可通过 `python -m tools.migrate_windows <旧配置路径> <新配置路径>` 迁移；输出路径必须不存在。请核对迁移警告及命名、网络等设置，不要将个人配置、日志或密钥提交到公开仓库。
+
+当前分支的 Windows 便携包构建工具为 `tools/build_windows_portable.py`；Docker/WebUI 部署尚未完成或验证，请勿将上游 Docker 命令当作本分支的 WebUI 部署方案。
+
+以下为上游项目的功能说明。
 
 **i18n**: This project currently supports only Chinese. However, if you're willing, you can [vote here](https://github.com/Yuukiy/JavSP/discussions/157) for the language you'd like to see added
 
@@ -23,7 +42,7 @@
 - [x] 自动识别影片番号
 - [x] 支持处理影片分片
 - [x] 汇总多个站点的数据生成NFO数据文件
-- [x] 每天自动对站点抓取器进行测试
+- [x] 上游提供定期站点抓取测试（不代表本分支或各站点当前均可用）
 - [x] 多线程并行抓取
 - [x] 下载高清封面
 - [x] 基于AI人体分析裁剪素人等非常规封面的海报
