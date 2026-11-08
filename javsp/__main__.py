@@ -247,8 +247,9 @@ def info_summary(movie: Movie, all_info: Dict[str, MovieInfo]):
         final_info.genre.append('无码流出/破解')
 
     # 女优别名固定
-    if Cfg().crawler.normalize_actress_name and bool(final_info.actress_pics):
-        final_info.actress = [resolve_alias(i) for i in final_info.actress]
+    if Cfg().crawler.normalize_actress_name:
+        if final_info.actress:
+            final_info.actress = [resolve_alias(i) for i in final_info.actress]
         if final_info.actress_pics:
             final_info.actress_pics = {
                 resolve_alias(key): value for key, value in final_info.actress_pics.items()

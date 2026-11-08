@@ -362,3 +362,12 @@ def test_fc2ppvdb_missing_duration_keeps_metadata(monkeypatch):
     fc2ppvdb.parse_data(movie)
     assert movie.title == 'Example' and movie.cover == 'https://example.test/img'
     assert movie.duration is None
+
+
+def test_normalize_actress_without_portraits():
+    import subprocess
+    import sys
+    program = '''from javsp import __main__ as app\nfrom javsp.datatype import Movie,MovieInfo\napp.actressAliasMap={"Canonical": ["Alias"]}\nm=Movie("IPX-177");m.files=["IPX-177.mp4"]\ni=MovieInfo("IPX-177");i.title="Example";i.cover="https://example.test/cover.jpg";i.actress=["Alias"];i.actress_pics=None\nassert app.info_summary(m,{"javdb":i});assert m.info.actress==["Canonical"]\n'''
+    result = subprocess.run([sys.executable, '-c', program], cwd=ROOT,
+                            capture_output=True, text=True, encoding='utf8', errors='replace')
+    assert result.returncode == 0, result.stderr
