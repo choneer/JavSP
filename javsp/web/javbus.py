@@ -25,6 +25,8 @@ def parse_data(movie: MovieInfo):
     """
     url = f'{base_url}/{movie.dvdid}'
     resp = request_get(url, delay_raise=True)
+    if '/doc/driver-verify' in resp.url:
+        raise CredentialError('JavBus requires age verification in a browser')
     # 疑似JavBus检测到类似爬虫的行为时会要求登录，不过发现目前不需要登录也可以从重定向前的网页中提取信息
     if resp.history and resp.history[0].status_code == 302:
         html = resp2html(resp.history[0])

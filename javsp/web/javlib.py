@@ -30,11 +30,9 @@ def init_network_cfg():
     for proxies in proxy_cfgs:
         request.proxies = proxies
         for url in urls:
-            if proxies == {} and url == permanent_url:
-                continue
             try:
                 resp = request.get(url, delay_raise=True)
-                if resp.status_code == 200:
+                if resp.status_code == 200 and 'javlibrary' in resp.text.lower():
                     request.timeout = Cfg().network.timeout.seconds
                     return url
             except Exception as e:
@@ -52,7 +50,10 @@ def parse_data(movie: MovieInfo):
         base_url = init_network_cfg()
         logger.debug(f"JavLib网络配置: {base_url}, proxy={request.proxies}")
     url = new_url = f'{base_url}/cn/vl_searchbyid.php?keyword={movie.dvdid}'
-    resp = request.get(url)
+    resp = request.get(url, delay_raise=True)
+    if resp.status_code in (403, 429, 503):
+        raise SiteBlocked(f'JavLibrary denied access (HTTP {resp.status_code})')
+    resp.raise_for_status()
     html = resp2html(resp)
     if resp.history:
         if urlsplit(resp.url).netloc == urlsplit(base_url).netloc:
@@ -61,10 +62,10 @@ def parse_data(movie: MovieInfo):
         else:
             # 重定向到了不同的netloc时，新地址并不是影片地址。这种情况下新地址中丢失了path字段，
             # 为无效地址（应该是JavBus重定向配置有问题），需要使用新的base_url抓取数据
-            base_url = 'https://' + urlsplit(resp.url).netloc
-            logger.warning(f"请将配置文件中的JavLib免代理地址更新为: {base_url}")
-            return parse_data(movie)
+            raise WebsiteError('JavLibrary redirected to a different host; check the configured address')
     else:   # 如果有多个搜索结果则不会自动跳转，此时需要程序介入选择搜索结果
+        if not html.xpath("//div[@id='rightcolumn']"):
+            raise WebsiteError('JavLibrary returned an unexpected page instead of search results')
         video_tags = html.xpath("//div[@class='video'][@id]/a")
         # 通常第一部影片就是我们要找的，但是以免万一还是遍历所有搜索结果
         pre_choose = []

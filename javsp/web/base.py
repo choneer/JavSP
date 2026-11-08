@@ -3,11 +3,13 @@ import os
 import sys
 import time
 import shutil
+import tempfile
 import logging
 import requests
 import contextlib
 import cloudscraper
 import lxml.html
+from PIL import Image
 from tqdm import tqdm
 from lxml import etree
 from lxml.html.clean import Cleaner
@@ -66,6 +68,8 @@ class Request():
                 logger.debug(f"无法通过CloudFlare检测: '{e}', 尝试退回常规的requests请求")
                 if func == self.scraper.get:
                     return requests.get(*args, **kw)
+                elif func == self.scraper.head:
+                    return requests.head(*args, **kw)
                 else:
                     return requests.post(*args, **kw)
         return wrapper
@@ -202,7 +206,7 @@ def is_connectable(url, timeout=3):
     """测试与指定url的连接"""
     try:
         r = requests.get(url, headers=headers, timeout=timeout)
-        return True
+        return 200 <= r.status_code < 400
     except requests.exceptions.RequestException as e:
         logger.debug(f"Not connectable: {url}\n" + repr(e))
         return False
@@ -214,7 +218,9 @@ def urlretrieve(url, filename=None, reporthook=None, headers=None):
     """使用requests实现urlretrieve"""
     # https://blog.csdn.net/qq_38282706/article/details/80253447
     with contextlib.closing(requests.get(url, headers=headers,
-                                         proxies=read_proxy(), stream=True)) as r:
+                                         proxies=read_proxy(), stream=True,
+                                         timeout=Cfg().network.timeout.total_seconds())) as r:
+        r.raise_for_status()
         header = r.headers
         with open(filename, 'wb+') as fp:
             bs = 1024
@@ -235,23 +241,33 @@ def urlretrieve(url, filename=None, reporthook=None, headers=None):
 
 def download(url, output_path, desc=None):
     """下载指定url的资源"""
-    # 支持“下载”本地资源，以供fc2fan的本地镜像所使用
-    if not url.startswith('http'):
-        start_time = time.time()
-        shutil.copyfile(url, output_path)
-        filesize = os.path.getsize(url)
-        elapsed = time.time() - start_time
-        info = {'total': filesize, 'elapsed': elapsed, 'rate': filesize/elapsed}
+    output_dir = os.path.dirname(os.path.abspath(output_path))
+    fd, temporary = tempfile.mkstemp(prefix='.javsp-download-', dir=output_dir)
+    os.close(fd)
+    try:
+        if not url.startswith('http'):
+            start_time = time.time()
+            shutil.copyfile(url, temporary)
+            filesize = os.path.getsize(url)
+            elapsed = max(time.time() - start_time, 0.000001)
+            info = {'total': filesize, 'elapsed': elapsed, 'rate': filesize/elapsed}
+        else:
+            if not desc:
+                desc = url.split('/')[-1]
+            referrer = headers.copy()
+            referrer['referer'] = url[:url.find('/', 8)+1]
+            with DownloadProgressBar(unit='B', unit_scale=True,
+                                     miniters=1, desc=desc, leave=False) as t:
+                urlretrieve(url, filename=temporary, reporthook=t.update_to, headers=referrer)
+                info = {k: t.format_dict[k] for k in ('total', 'elapsed', 'rate')}
+        if os.path.splitext(output_path)[1].lower() in {'.jpg', '.jpeg', '.png', '.webp'}:
+            with Image.open(temporary) as image:
+                image.verify()
+        os.replace(temporary, output_path)
         return info
-    if not desc:
-        desc = url.split('/')[-1]
-    referrer = headers.copy()
-    referrer['referer'] = url[:url.find('/', 8)+1]  # 提取base_url部分
-    with DownloadProgressBar(unit='B', unit_scale=True,
-                             miniters=1, desc=desc, leave=False) as t:
-        urlretrieve(url, filename=output_path, reporthook=t.update_to, headers=referrer)
-        info = {k: t.format_dict[k] for k in ('total', 'elapsed', 'rate')}
-        return info
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def open_in_chrome(url, new=0, autoraise=True):

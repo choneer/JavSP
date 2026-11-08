@@ -2,6 +2,7 @@
 import os
 import re
 import logging
+import requests
 
 from javsp.web.base import Request, resp2html
 from javsp.web.exceptions import *
@@ -32,6 +33,10 @@ def get_html_wrapper(url):
     if r.status_code == 200:
         # 发生重定向可能仅仅是域名重定向，因此还要检查url以判断是否被跳转到了登录页
         if r.history and '/login' in r.url:
+            if not Cfg().crawler.javdb_browser_cookies:
+                raise CredentialError(
+                    'JavDB requires login; automatic browser-cookie access is disabled'
+                )
             # 仅在需要时去读取Cookies
             if 'cookies_pool' not in globals():
                 try:
@@ -181,10 +186,17 @@ def parse_data(movie: MovieInfo):
         subsite = pre_id.split('?')[0]
         movie.uncensored = {'uncensored': True, 'tags':False}.get(subsite)
     # JavDB目前同时提供男女优信息，根据用来标识性别的符号筛选出女优
-    actors_tag = info.xpath("//strong[text()='演員:']/../span")[0]
-    all_actors = actors_tag.xpath("a/text()")
-    genders = actors_tag.xpath("strong/text()")
-    actress = [i for i in all_actors if genders[all_actors.index(i)] == '♀']
+    actors_tags = info.xpath(".//strong[text()='演員:']/../span")
+    actress = []
+    if actors_tags:
+        for actor in actors_tags[0].xpath("./a"):
+            classes = actor.get('class', '').split()
+            marker = actor.getnext()
+            if 'actor-female' in classes or (
+                marker is not None and marker.tag == 'strong'
+                and marker.text_content().strip() == '♀'
+            ):
+                actress.append(actor.text_content().strip())
     magnet = container.xpath("//div[@class='magnet-name column is-four-fifths']/a/@href")
 
     movie.dvdid = dvdid
@@ -206,9 +218,12 @@ def parse_clean_data(movie: MovieInfo):
         parse_data(movie)
         # 检查封面URL是否真的存在对应图片
         if movie.cover is not None:
-            r = request.head(movie.cover)
-            if r.status_code != 200:
-                movie.cover = None
+            try:
+                r = request.head(movie.cover)
+                if r.status_code in (404, 410):
+                    movie.cover = None
+            except requests.exceptions.RequestException as exc:
+                logger.warning("JavDB cover check failed: %s", exc)
     except SiteBlocked:
         raise
         logger.error('JavDB: 可能触发了反爬虫机制，请稍后再试')

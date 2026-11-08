@@ -29,16 +29,35 @@ def scan_movies(root: str) -> List[Movie]:
     # 2. 允许分片间的编号有公共的前导符（如编号01, 02, 03），因为求prefix时前导符也会算进去
 
     # 扫描所有影片文件并获取它们的番号
+    failed_items.clear()
+
+    def record_scan_error(path, error):
+        failure = Movie('无法访问路径')
+        failure.files = [str(path)]
+        failed_items.append(failure)
+        logger.error('无法访问路径: %s (%s)', path, error)
+
     dic = {}    # avid: [abspath1, abspath2...]
     small_videos = {}
-    ignore_folder_name_pattern = re.compile('|'.join(Cfg().scanner.ignored_folder_name_pattern))
-    for dirpath, dirnames, filenames in os.walk(root):
+    patterns = Cfg().scanner.ignored_folder_name_pattern
+    ignore_folder_name_pattern = re.compile('|'.join(patterns)) if patterns else None
+    for dirpath, dirnames, filenames in os.walk(
+        root, onerror=lambda exc: record_scan_error(exc.filename or root, exc)
+    ):
         for name in dirnames.copy():
-            if ignore_folder_name_pattern.match(name):
+            if ignore_folder_name_pattern and ignore_folder_name_pattern.match(name):
                 dirnames.remove(name)
+                continue
             # 移除有nfo的文件夹
             if Cfg().scanner.skip_nfo_dir:
-                if any(file.lower().endswith(".nfo") for file in os.listdir(os.path.join(dirpath, name)) if isinstance(file, str)):
+                child = os.path.join(dirpath, name)
+                try:
+                    entries = os.listdir(child)
+                except OSError as exc:
+                    record_scan_error(child, exc)
+                    dirnames.remove(name)
+                    continue
+                if any(file.lower().endswith(".nfo") for file in entries if isinstance(file, str)):
                     print(f"skip file {name}")
                     dirnames.remove(name)
 
@@ -47,7 +66,11 @@ def scan_movies(root: str) -> List[Movie]:
             if ext in Cfg().scanner.filename_extensions:
                 fullpath = os.path.join(dirpath, file)
                 # 忽略小于指定大小的文件
-                filesize = os.path.getsize(fullpath)
+                try:
+                    filesize = os.path.getsize(fullpath)
+                except OSError as exc:
+                    record_scan_error(fullpath, exc)
+                    continue
                 if filesize < Cfg().scanner.minimum_size:
                     small_videos.setdefault(file, []).append(fullpath)
                     continue
@@ -134,6 +157,9 @@ def scan_movies(root: str) -> List[Movie]:
     msg = ''
     for avid, files in non_slice_dup.items():
         msg += f'{avid}: \n'
+        failure = Movie(avid)
+        failure.files = files
+        failed_items.append(failure)
         for f in files:
             msg += ('  ' + os.path.relpath(f, root) + '\n')
     if msg:

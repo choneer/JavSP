@@ -167,13 +167,29 @@ class Movie:
             expression = f"('{self.dvdid}')"
         return __class__.__name__ + expression
 
+    def planned_moves(self):
+        """Return and preflight all target paths before writing metadata."""
+        result = []
+        multiple = len(self.files) > 1
+        for index, src in enumerate(self.files, start=1):
+            ext = os.path.splitext(src)[1]
+            suffix = f'-CD{index}' if multiple else ''
+            dst = os.path.abspath(os.path.join(self.save_dir, self.basename + suffix + ext))
+            if os.path.lexists(dst):
+                raise FileExistsError(f'File exists: {dst}')
+            result.append((src, dst))
+        names = [os.path.normcase(dst) for _, dst in result]
+        if len(names) != len(set(names)):
+            raise FileExistsError('Multiple files have the same target path')
+        return result
+
     def rename_files(self, use_hardlink: bool = False) -> None:
         """根据命名规则移动（重命名）影片文件"""
         def move_file(src:str, dst:str):
             """移动（重命名）文件并记录信息到日志"""
             abs_dst = os.path.abspath(dst)
             # shutil.move might overwrite dst file
-            if os.path.exists(abs_dst):
+            if os.path.lexists(abs_dst):
                 raise FileExistsError(f'File exists: {abs_dst}')
             if (use_hardlink):
                 os.link(src, abs_dst)
@@ -183,22 +199,14 @@ class Movie:
             dst_name = os.path.basename(dst)
             logger.info(f"重命名文件: '{src_rel}' -> '...{os.sep}{dst_name}'")
             # 目前StreamHandler并未设置filter，为了避免显示中出现重复的日志，这里暂时只能用debug级别
-            filemove_logger.debug(f'移动（重命名）文件: \n  原路径: "{src}"\n  新路径: "{abs_dst}"')
+            filemove_logger.info('source=%s destination=%s operation=%s',
+                                 src, abs_dst, 'link' if use_hardlink else 'move')
 
         new_paths = []
         dir = os.path.dirname(self.files[0])
-        if len(self.files) == 1:
-            fullpath = self.files[0]
-            ext = os.path.splitext(fullpath)[1]
-            newpath = os.path.join(self.save_dir, self.basename + ext)
+        for fullpath, newpath in self.planned_moves():
             move_file(fullpath, newpath)
             new_paths.append(newpath)
-        else:
-            for i, fullpath in enumerate(self.files, start=1):
-                ext = os.path.splitext(fullpath)[1]
-                newpath = os.path.join(self.save_dir, self.basename + f'-CD{i}' + ext)
-                move_file(fullpath, newpath)
-                new_paths.append(newpath)
         self.new_paths = new_paths
         if len(os.listdir(dir)) == 0:
             #如果移动文件后目录为空则删除该目录

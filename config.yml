@@ -30,7 +30,7 @@ network:
   proxy_free:
     avsox: 'https://avsox.click'
     javbus: 'https://www.seedmm.help'
-    javdb: 'https://javdb368.com'
+    javdb: 'https://javdb.com'
     javlib: 'https://www.y78k.com'
   # 网络问题导致抓取数据失败时的重试次数，通常3次就差不多了
   retry: 3
@@ -62,6 +62,8 @@ crawler:
   use_javdb_cover: fallback
   # 是否统一女优艺名。启用时会尝试将女优的多个艺名统一成一个
   normalize_actress_name: true
+  # 默认不读取浏览器 Cookie；仅在了解风险并主动授权后启用
+  javdb_browser_cookies: false
 
 ################################
 # 配置整理时的命名规则

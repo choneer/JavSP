@@ -1,5 +1,6 @@
 """从JavMenu抓取数据"""
 import logging
+from urllib.parse import urljoin
 
 from javsp.web.base import Request, resp2html
 from javsp.web.exceptions import *
@@ -25,29 +26,35 @@ def parse_data(movie: MovieInfo):
         raise MovieNotFoundError(__name__, movie.dvdid)
 
     html = resp2html(r)
-    container = html.xpath("//div[@class='col-md-9 px-0']")[0]
-    title = container.xpath("div[@class='col-12 mb-3']/h1/strong/text()")[0]
-    # 竟然还在标题里插广告，真的疯了。要不是我已经写了抓取器，才懒得维护这个破站
+    title_nodes = html.xpath("//h1/strong")
+    if not title_nodes:
+        raise WebsiteError("JavMenu: missing title; page layout may have changed")
+    title = title_nodes[0].text_content().strip()
     title = title.replace('  | JAV目錄大全 | 每日更新', '')
-    title = title.replace(' 免費在線看', '').replace(' 免費AV在線看', '')
-    cover_tag = container.xpath("//div[@class='single-video']")
-    if len(cover_tag) > 0:
-        video_tag = cover_tag[0].find('video')
-        # URL首尾竟然也有空格……
-        movie.cover = video_tag.get('data-poster').strip()
-        # 预览影片改为blob了，无法获取
-        # movie.preview_video = video_tag.find('source').get('src').strip()
-    else:
-        cover_img_tag = container.xpath("//img[@class='lazy rounded']/@data-src")
-        if cover_img_tag:
-            movie.cover = cover_img_tag[0].strip()
-    info = container.xpath("//div[@class='card-body']")[0]
-    publish_date = info.xpath("div/span[contains(text(), '日期:')]")[0].getnext().text
-    duration = info.xpath("div/span[contains(text(), '時長:')]")[0].getnext().text.replace('分鐘', '')
-    producer = info.xpath("div/span[contains(text(), '製作:')]/following-sibling::a/span/text()")
+    title = title.replace('免費在線看', '').replace('免費AV在線看', '')
+    cover = html.xpath("//meta[@property='og:image']/@content")
+    if not cover:
+        cover = html.xpath("//video/@data-poster | //img[contains(@class,'lazy')]/@data-src")
+    if cover:
+        movie.cover = urljoin(r.url, cover[0].strip())
+    info_nodes = html.xpath("//div[contains(concat(' ', normalize-space(@class), ' '), ' card-body ')]")
+    info = info_nodes[0] if info_nodes else html
+
+    def info_value(*labels):
+        for label in labels:
+            nodes = info.xpath(".//div/span[contains(normalize-space(.), $label)]/following-sibling::span[1]", label=label)
+            if nodes:
+                return nodes[0].text_content().strip()
+        return None
+
+    publish_date = info_value('日期:', '發佈於:')
+    duration = info_value('時長:')
+    if duration:
+        duration = duration.replace('分鐘', '').strip()
+    producer = info.xpath(".//div/span[contains(text(), '製作:')]/following-sibling::a/span/text()")
     if producer:
-        movie.producer = producer[0]
-    genre_tags = info.xpath("//a[@class='genre']")
+        movie.producer = producer[0].strip()
+    genre_tags = info.xpath(".//a[contains(concat(' ', normalize-space(@class), ' '), ' genre ')]")
     genre, genre_id = [], []
     for tag in genre_tags:
         items = tag.get('href').split('/')
@@ -55,17 +62,17 @@ def parse_data(movie: MovieInfo):
         genre.append(tag.text.strip())
         genre_id.append(pre_id)
         # genre的链接中含有censored字段，但是无法用来判断影片是否有码，因为完全不可靠……
-    actress = info.xpath("div/span[contains(text(), '女優:')]/following-sibling::*/a/text()") or None
-    magnet_table = container.xpath("//table[contains(@class, 'magnet-table')]/tbody")
+    actress = info.xpath(".//div/span[contains(text(), '女優:')]/following-sibling::*/a/text()") or None
+    magnet_table = html.xpath("//table[contains(@class, 'magnet-table')]/tbody")
     if magnet_table:
         magnet_links = magnet_table[0].xpath("tr/td/a/@href")
         # 它的FC2数据是从JavDB抓的，JavDB更换图片服务器后它也跟上了，似乎数据更新频率还可以
         movie.magnet = [i.replace('[javdb.com]','') for i in magnet_links]
-    preview_pics = container.xpath("//a[@data-fancybox='gallery']/@href")
+    preview_pics = [urljoin(r.url, item) for item in html.xpath("//a[@data-fancybox='gallery']/@href")]
 
     if (not movie.cover) and preview_pics:
         movie.cover = preview_pics[0]
-    movie.url = url
+    movie.url = r.url
     movie.title = title.replace(movie.dvdid, '').strip()
     movie.preview_pics = preview_pics
     movie.publish_date = publish_date

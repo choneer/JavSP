@@ -5,9 +5,10 @@ import sys
 import json
 import logging
 from typing import Dict, List, Tuple
+import requests
 
 
-from javsp.web.base import Request, resp2html
+from javsp.web.base import Request, read_proxy, resp2html
 from javsp.web.exceptions import *
 from javsp.config import Cfg
 from javsp.datatype import MovieInfo
@@ -32,6 +33,7 @@ def sort_search_result(result: List[Dict]):
 
 def get_urls_of_cid(cid: str) -> Tuple[str, str]:
     """搜索cid可能的影片URL"""
+    wanted_cid = cid
     r = request.get(f"https://www.dmm.co.jp/search/?redirect=1&enc=UTF-8&category=&searchstr={cid}&commit.x=0&commit.y=0")
     if r.status_code == 404:
         raise MovieNotFoundError(__name__, cid)
@@ -41,20 +43,20 @@ def get_urls_of_cid(cid: str) -> Tuple[str, str]:
     parsed_result = {}
     for url in result:
         items = url.split('/')
-        type_, cid = None, None
+        type_, found_cid = None, None
         for i, part in enumerate(items):
             if part == '-':
                 product, type_ = items[i-2], items[i-1]
             elif part.startswith('cid='):
-                cid = part[4:]
+                found_cid = part[4:]
                 new_url = '/'.join(i for i in items if not i.startswith('?')) + '/'
-                parsed_result.setdefault(cid, []).append({'product': product, 'type': type_, 'url': new_url})
+                parsed_result.setdefault(found_cid, []).append({'product': product, 'type': type_, 'url': new_url})
                 break
-    if cid not in parsed_result:
+    if wanted_cid not in parsed_result:
         if len(result) > 0:
             logger.debug(f"Unknown URL in search result: " + ', '.join(result))
-        raise MovieNotFoundError(__name__, cid)
-    sorted_result = sort_search_result(parsed_result[cid])
+        raise MovieNotFoundError(__name__, wanted_cid)
+    sorted_result = sort_search_result(parsed_result[wanted_cid])
     return sorted_result
 
 
@@ -64,7 +66,61 @@ def resp2html_wrapper(resp):
         raise SiteBlocked('FANZA不允许从当前IP所在地区访问，请检查你的网络和代理服务器设置')
     elif '/login/' in resp.url:
         raise SiteBlocked('FANZA要求当前IP登录账号才可访问，请尝试更换为日本IP')
+    elif '/age_check/' in resp.url:
+        raise CredentialError('FANZA requires age verification in a browser')
     return html
+
+
+def parse_modern_content(movie: MovieInfo):
+    """Read the current video site's public GraphQL detail response."""
+    query = """
+        query ContentDetail($id: ID!) {
+          ppvContent(id: $id) {
+            id title description makerContentId duration deliveryStartDate
+            packageImage { largeUrl }
+            sampleImages { largeImageUrl }
+            maker { name }
+            actresses { name }
+            genres { name }
+            series { name }
+            directors { name }
+          }
+        }
+    """
+    response = requests.post(
+        'https://api.video.dmm.co.jp/graphql',
+        json={'query': query, 'variables': {'id': movie.cid}},
+        headers={'Origin': 'https://video.dmm.co.jp', 'Referer': 'https://video.dmm.co.jp/'},
+        proxies=read_proxy(), timeout=Cfg().network.timeout.total_seconds(),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get('errors'):
+        raise WebsiteError('FANZA GraphQL returned an error')
+    content = (payload.get('data') or {}).get('ppvContent')
+    if not content:
+        raise MovieNotFoundError(__name__, movie.cid)
+    movie.cid = content.get('id') or movie.cid
+    movie.dvdid = content.get('makerContentId') or None
+    movie.title = content.get('title')
+    movie.plot = content.get('description')
+    movie.cover = (content.get('packageImage') or {}).get('largeUrl')
+    movie.preview_pics = [item['largeImageUrl'] for item in (content.get('sampleImages') or [])
+                          if item and item.get('largeImageUrl')]
+    movie.actress = [item['name'] for item in (content.get('actresses') or [])
+                     if item and item.get('name')]
+    movie.genre = [item['name'] for item in (content.get('genres') or [])
+                   if item and item.get('name')]
+    movie.serial = (content.get('series') or {}).get('name')
+    directors = [item['name'] for item in (content.get('directors') or [])
+                 if item and item.get('name')]
+    movie.director = directors[0] if directors else None
+    movie.producer = (content.get('maker') or {}).get('name')
+    duration = content.get('duration')
+    movie.duration = str(round(duration / 60)) if isinstance(duration, (int, float)) else None
+    movie.publish_date = (content.get('deliveryStartDate') or '')[:10] or None
+    movie.uncensored = False
+    movie.url = f'https://video.dmm.co.jp/av/content/?id={movie.cid}'
 
 
 def parse_data(movie: MovieInfo):
@@ -92,7 +148,11 @@ def parse_data(movie: MovieInfo):
                     logger.warning(f"在fanza查找到的cid={movie.cid}的影片页面均解析失败")
                     raise
     else:
+        r0.raise_for_status()
         html = resp2html_wrapper(r0)
+        if 'video.dmm.co.jp' in r0.url and not html.xpath("//div[@class='hreview']/h1"):
+            parse_modern_content(movie)
+            return
         parse_videoa_page(movie, html)
         movie.url = default_url
 

@@ -27,10 +27,11 @@ def parse_data(movie: MovieInfo):
         html = lxml.html.parse(html_file)
     else:
         url = f"https://fc2club.top/html/{movie.dvdid}.html"
-        r = requests.get(url)
+        r = requests.get(url, timeout=Cfg().network.timeout.total_seconds())
         if r.status_code == 404:
             raise MovieNotFoundError(__name__, movie.dvdid)
-        elif r.text == '':
+        r.raise_for_status()
+        if r.text == '':
             raise WebsiteError(f'fc2fan: 站点不可用 (HTTP {r.status_code}): {url}')
         html = resp2html(r)
     try:
