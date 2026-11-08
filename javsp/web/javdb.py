@@ -129,11 +129,14 @@ def parse_data(movie: MovieInfo):
             box = html.xpath("//a[@class='box']")[index]
             movie.url = new_url
             movie.title = box.get('title')
-            movie.cover = box.xpath("div/img/@src")[0]
-            score_str = box.xpath("div[@class='score']/span/span")[0].tail
-            score = re.search(r'([\d.]+)分', score_str).group(1)
-            movie.score = "{:.2f}".format(float(score)*2)
-            movie.publish_date = box.xpath("div[@class='meta']/text()")[0].strip()
+            covers = box.xpath("div/img/@src")
+            movie.cover = covers[0] if covers else None
+            scores = box.xpath("div[@class='score']/span/span")
+            score = re.search(r'([\d.]+)分', scores[0].tail or '') if scores else None
+            if score:
+                movie.score = "{:.2f}".format(float(score.group(1))*2)
+            dates = box.xpath("div[@class='meta']/text()")
+            movie.publish_date = dates[0].strip() if dates else None
             return
     else:
         raise MovieDuplicateError(__name__, movie.dvdid, match_count)

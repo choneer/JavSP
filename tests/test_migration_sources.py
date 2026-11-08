@@ -371,3 +371,17 @@ def test_normalize_actress_without_portraits():
     result = subprocess.run([sys.executable, '-c', program], cwd=ROOT,
                             capture_output=True, text=True, encoding='utf8', errors='replace')
     assert result.returncode == 0, result.stderr
+
+
+def test_javdb_search_fallback_without_optional_rating(monkeypatch):
+    from javsp.web import javdb
+    from javsp.web.exceptions import CredentialError
+    search=html.fromstring('''<html><a class="box" href="https://javdb.com/v/example" title="Example">
+    <div><img src="https://example.test/cover.jpg"></div><div class="video-title"><strong>IPX-177</strong></div></a></html>''')
+    def get(url):
+        if '/search?' in url: return search
+        raise CredentialError('login required')
+    monkeypatch.setattr(javdb, 'get_html_wrapper', get)
+    movie=MovieInfo('IPX-177');javdb.parse_data(movie)
+    assert movie.title=='Example' and movie.cover=='https://example.test/cover.jpg'
+    assert movie.score is None and movie.publish_date is None
